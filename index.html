@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Malu Store — Pedidos da Live</title>
+<style>
+*{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#f7f4f1;color:#262626}
+header{background:#232323;color:#fff;padding:16px 22px;display:flex;justify-content:space-between;align-items:center;gap:12px;position:sticky;top:0;z-index:3}
+h1{font-size:21px;margin:0}.live{background:#d92323;padding:7px 12px;border-radius:20px;font-weight:bold;font-size:13px}
+main{max-width:1180px;margin:18px auto;padding:0 14px;display:grid;grid-template-columns:1fr 1.35fr;gap:18px}
+.card{background:#fff;border-radius:14px;padding:18px;box-shadow:0 2px 12px #0000000f}.topline{display:flex;justify-content:space-between;align-items:center;gap:8px}
+h2{font-size:17px;margin:0 0 10px}.muted{color:#777;font-size:13px}
+input,button{font:inherit}.field{width:100%;padding:11px;border:1px solid #ccc;border-radius:9px;font-size:14px}button{padding:11px 13px;border:0;border-radius:9px;background:#222;color:#fff;cursor:pointer}.secondary{background:#eee;color:#222}.danger{background:#9a1d1d}
+.comment{border:1px solid #ddd;border-radius:10px;padding:12px;margin:9px 0;cursor:pointer;transition:.12s}.comment:hover{background:#fafafa}.comment.selected{border:2px solid #222;background:#fafafa}.user{font-weight:bold;color:#7b3f7b}.time{margin-top:5px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}.row3{display:grid;grid-template-columns:1.4fr .6fr .8fr;gap:8px}.actions{display:flex;gap:7px;flex-wrap:wrap}.actions button{flex:1}
+.client{border:1px solid #ddd;border-radius:12px;padding:14px;margin:10px 0}.client h3{margin:0 0 8px;display:flex;justify-content:space-between;gap:8px;align-items:center}.item{display:flex;justify-content:space-between;border-top:1px solid #eee;padding:8px 0;gap:10px}.total{text-align:right;font-weight:bold;margin-top:8px}.pill{font-size:12px;padding:4px 8px;border-radius:12px;background:#eee;font-weight:normal;white-space:nowrap}
+.status{border:1px solid #ccc;border-radius:8px;padding:8px 10px;background:#fff;color:#222}.live-note{font-size:12px;color:#666;margin:0 0 12px}.toolbar{display:grid;grid-template-columns:1fr auto auto;gap:8px;margin-bottom:10px}
+#comments,#orders{max-height:65vh;overflow:auto;padding-right:3px}.empty{padding:20px 0;text-align:center;color:#888}
+@media(max-width:850px){main{grid-template-columns:1fr}.row3{grid-template-columns:1fr 1fr}.row3 input:first-child{grid-column:1/-1}.toolbar{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header><h1>🛍️ Malu Store — Pedidos da Live</h1><span class="live">● LIVE</span></header>
+<main>
+<section class="card">
+<div class="topline"><h2>💬 Comentários da Live</h2><span id="conn" class="pill">Conectando…</span></div>
+<p class="live-note">Os comentários enviados pelo Instagram aparecem aqui automaticamente. Clique no comentário para montar o pedido.</p>
+<div class="toolbar">
+<input id="commentSearch" class="field" placeholder="Filtrar por @usuário ou comentário" oninput="renderComments()">
+<button class="secondary" onclick="refreshComments()">↻ Atualizar</button>
+<button class="danger" onclick="clearComments()">Limpar</button>
+</div>
+<div id="comments"></div>
+<hr style="border:0;border-top:1px solid #eee;margin:16px 0">
+<details><summary><b>Teste manual</b></summary>
+<div class="row2" style="margin-top:10px"><input id="testUser" class="field" placeholder="@cliente"><input id="testText" class="field" placeholder="Comentário"></div>
+<button style="margin-top:8px" onclick="addTestComment()">Simular comentário</button>
+</details>
+</section>
+
+<section class="card">
+<h2>➕ Adicionar pedido</h2>
+<div id="selected" class="muted">Selecione um comentário à esquerda.</div>
+<div class="row2" style="margin-top:10px">
+<input id="product" class="field" placeholder="Nome da peça">
+<input id="size" class="field" placeholder="Tamanho (P/M/G/…) ">
+</div>
+<div class="row3" style="margin-top:8px">
+<input id="value" class="field" type="number" step="0.01" min="0" placeholder="Valor unitário (R$)">
+<input id="qty" class="field" type="number" min="1" value="1" placeholder="Qtd.">
+<button onclick="saveOrder()">Salvar</button>
+</div>
+<hr style="border:0;border-top:1px solid #eee;margin:18px 0">
+<div class="topline"><h2>📋 Pedidos agrupados</h2><span id="summary" class="pill"></span></div>
+<input id="search" class="field" placeholder="Buscar @cliente" oninput="renderOrders()" style="margin-bottom:8px">
+<div id="orders"></div>
+<button class="secondary" style="width:100%;margin-top:8px" onclick="exportCSV()">📥 Exportar CSV</button>
+</section>
+</main>
+<script>
+let comments=[], selectedIndex=null;
+let orders=JSON.parse(localStorage.getItem('malu_orders')||'{}');
+
+function fmtMoney(v){return Number(v).toFixed(2).replace('.',',')}
+function fmtTime(v){const d=new Date(v);return isNaN(d)?v:d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}
+function saveLocal(){localStorage.setItem('malu_orders',JSON.stringify(orders))}
+
+async function refreshComments(){
+ try{
+  const r=await fetch('/api/comments?limit=300',{cache:'no-store'}); if(!r.ok) throw new Error();
+  comments=await r.json(); document.getElementById('conn').textContent='● Conectado'; renderComments();
+ }catch(e){document.getElementById('conn').textContent='Sem conexão'}
+}
+function renderComments(){
+ const q=(document.getElementById('commentSearch').value||'').toLowerCase();
+ const el=document.getElementById('comments');
+ const arr=comments.filter(x=>(x.username+' '+x.text).toLowerCase().includes(q));
+ if(!arr.length){el.innerHTML='<div class="empty">Nenhum comentário recebido ainda.</div>';return}
+ el.innerHTML=arr.map((x,i)=>`<div class="comment ${selectedIndex!==null&&comments[selectedIndex]===x?'selected':''}" onclick="selectComment(${comments.indexOf(x)})"><div class="user">${esc(x.username)}</div><div>${esc(x.text)}</div><div class="muted time">${esc(fmtTime(x.created_at))}</div></div>`).join('');
+}
+function selectComment(i){
+ selectedIndex=i; const c=comments[i];
+ document.getElementById('selected').innerHTML=`Cliente selecionada: <b>${esc(c.username)}</b><br><span class="muted">“${esc(c.text)}”</span>`;
+ renderComments(); document.getElementById('product').focus();
+}
+function saveOrder(){
+ if(selectedIndex===null) return alert('Selecione um comentário.');
+ const c=comments[selectedIndex]; const product=document.getElementById('product').value.trim(); const size=document.getElementById('size').value.trim(); const value=Number(document.getElementById('value').value); const qty=Math.max(1,Number(document.getElementById('qty').value)||1);
+ if(!product||value<=0)return alert('Informe a peça e o valor.');
+ const u=c.username; if(!orders[u]) orders[u]={items:[],status:'Pendente'}; orders[u].items.push({product,size,value,qty,at:new Date().toISOString()});
+ saveLocal(); ['product','size','value'].forEach(id=>document.getElementById(id).value='');document.getElementById('qty').value=1; renderOrders();
+}
+function setStatus(u,s){orders[u].status=s;saveLocal();renderOrders()}
+function removeCustomer(u){if(confirm('Remover todo o pedido de '+u+'?')){delete orders[u];saveLocal();renderOrders()}}
+function renderOrders(){
+ const q=(document.getElementById('search').value||'').toLowerCase(); const el=document.getElementById('orders'); let count=0,total=0; el.innerHTML='';
+ Object.entries(orders).filter(([u])=>u.toLowerCase().includes(q)).forEach(([u,o])=>{
+  const box=document.createElement('div');box.className='client';let subtotal=0;
+  const items=o.items.map(x=>{const t=x.value*x.qty;subtotal+=t;return `<div class="item"><span>${x.qty}x ${esc(x.product)}${x.size?' — '+esc(x.size):''}</span><span>R$ ${fmtMoney(t)}</span></div>`}).join('');
+  total+=subtotal;count++;
+  box.innerHTML=`<h3><span>${esc(u)}</span><span class="pill">${esc(o.status)}</span></h3>${items}<div class="total">Total: R$ ${fmtMoney(subtotal)}</div><div class="actions" style="margin-top:8px"><button onclick="setStatus('${js(u)}','Separado')">Separado</button><button onclick="setStatus('${js(u)}','Conferido')">Conferido</button><button onclick="setStatus('${js(u)}','Pago')">Pago</button><button class="secondary" onclick="removeCustomer('${js(u)}')">Excluir</button></div>`;
+  el.appendChild(box);
+ });
+ if(!count)el.innerHTML='<div class="empty">Nenhum pedido montado.</div>';
+ document.getElementById('summary').textContent=`${count} cliente(s) • R$ ${fmtMoney(total)}`;
+}
+function exportCSV(){
+ const rows=[['Cliente','Peça','Tamanho','Quantidade','Valor unitário','Total item','Status']]; Object.entries(orders).forEach(([u,o])=>o.items.forEach(x=>rows.push([u,x.product,x.size,x.qty,x.value.toFixed(2),(x.value*x.qty).toFixed(2),o.status])));
+ const csv=rows.map(r=>r.map(v=>`"${String(v).replaceAll('"','""')}"`).join(';')).join('\n'); const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}));a.download='pedidos-malu-store.csv';a.click();URL.revokeObjectURL(a.href);
+}
+async function addTestComment(){const u=document.getElementById('testUser').value.trim(),t=document.getElementById('testText').value.trim();if(!u||!t)return alert('Preencha @cliente e comentário.');await fetch('/api/test-comment',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,text:t})});document.getElementById('testUser').value='';document.getElementById('testText').value='';await refreshComments()}
+async function clearComments(){if(!confirm('Apagar os comentários recebidos neste teste?'))return;await fetch('/api/comments',{method:'DELETE'});comments=[];selectedIndex=null;renderComments()}
+function esc(v){return String(v).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;')}
+function js(v){return String(v).replaceAll('\\','\\\\').replaceAll("'","\\'")}
+refreshComments();renderOrders();setInterval(refreshComments,2000);
+</script>
+</body>
+</html>
